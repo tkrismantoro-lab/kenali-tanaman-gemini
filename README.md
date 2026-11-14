@@ -1,11 +1,34 @@
-<div align="center">
+# Kenali Tanaman
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+Aplikasi Android untuk mengenali tanaman dari foto. Ambil foto (atau pilih dari galeri), lalu
+aplikasi menampilkan nama tanaman, nama ilmiah, cara merawat, toksisitas, kondisi tanaman di
+foto, masalah umum, manfaat, dan fakta menarik. Hasil tersimpan di riwayat.
 
-  <h1>Built with AI Studio</h2>
+## Struktur
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+- `core/` — modul Kotlin murni: memanggil Claude (SDK resmi `anthropic-java`) dengan foto dan
+  JSON Schema, lalu mengurai jawabannya. Punya unit test, tidak butuh Android SDK.
+- `app/` — aplikasi Android (Jetpack Compose, Material 3): kamera, galeri, riwayat, pengaturan.
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+## Menjalankan
 
-</div>
+1. Buka folder ini di Android Studio (versi terbaru), tunggu Gradle sync selesai.
+2. Jalankan ke HP/emulator Android 9 (API 28) ke atas.
+3. Di aplikasi, buka Pengaturan (ikon gerigi) dan tempel API key dari console.anthropic.com.
+
+Dari terminal (butuh Android SDK):
+
+```bash
+./gradlew :app:assembleDebug
+```
+
+```bash
+./gradlew :core:test
+```
+
+## Catatan
+
+- API key disimpan di perangkat dan dikirim langsung ke API Anthropic. Ini cocok untuk
+  pemakaian pribadi. Untuk rilis ke Play Store, pindahkan pemanggilan AI ke server Anda sendiri
+  supaya key tidak ada di aplikasi.
+- Model diatur di `PlantIdentifier.DEFAULT_MODEL`.
