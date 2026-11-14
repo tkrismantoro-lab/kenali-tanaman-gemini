@@ -26,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.kenalitanaman.app.HistoryEntry
+import id.kenalitanaman.app.QueueItem
 import id.kenalitanaman.app.UiState
 import java.text.DateFormat
 import java.util.Date
@@ -62,6 +64,10 @@ fun HomeScreen(
     onOpen: (HistoryEntry) -> Unit,
     onSaveApiKey: (String) -> Unit,
     onDismissError: () -> Unit,
+    onDismissNotice: () -> Unit,
+    onRetryQueued: (QueueItem) -> Unit,
+    onDeleteQueued: (QueueItem) -> Unit,
+    onRetryQueueNow: () -> Unit,
 ) {
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
@@ -90,6 +96,23 @@ fun HomeScreen(
                     onOpenSettings = { showSettings = true },
                 )
             }
+            if (state.queue.isNotEmpty()) {
+                item {
+                    QueueHeader(
+                        count = state.queue.size,
+                        canRetryNow = state.processingId == null && state.queue.any { it.error == null },
+                        onRetryNow = onRetryQueueNow,
+                    )
+                }
+                items(state.queue, key = { "antrean-${it.id}" }) { item ->
+                    QueueRow(
+                        item = item,
+                        processing = item.id == state.processingId,
+                        onRetry = { onRetryQueued(item) },
+                        onDelete = { onDeleteQueued(item) },
+                    )
+                }
+            }
             item {
                 Text(
                     "Riwayat",
@@ -106,7 +129,7 @@ fun HomeScreen(
                     )
                 }
             }
-            items(state.history, key = { it.id }) { entry ->
+            items(state.history, key = { "riwayat-${it.id}" }) { entry ->
                 HistoryRow(entry, onClick = { onOpen(entry) })
             }
         }
@@ -120,6 +143,15 @@ fun HomeScreen(
                 showSettings = false
             },
             onDismiss = { showSettings = false },
+        )
+    }
+
+    state.notice?.let { message ->
+        AlertDialog(
+            onDismissRequest = onDismissNotice,
+            confirmButton = { TextButton(onClick = onDismissNotice) { Text("Mengerti") } },
+            title = { Text("Disimpan ke antrean") },
+            text = { Text(message) },
         )
     }
 
@@ -174,6 +206,78 @@ private fun CaptureCard(
                 Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
                     Text("Masukkan API Key Gemini")
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueueHeader(count: Int, canRetryNow: Boolean, onRetryNow: () -> Unit) {
+    Column(Modifier.padding(top = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Antrean ($count)",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            if (canRetryNow) {
+                TextButton(onClick = onRetryNow) { Text("Coba sekarang") }
+            }
+        }
+        Text(
+            "Foto akan dianalisis otomatis saat HP mendapat sinyal internet, walaupun aplikasi ditutup.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun QueueRow(item: QueueItem, processing: Boolean, onRetry: () -> Unit, onDelete: () -> Unit) {
+    val failed = item.error != null
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            FileImage(
+                file = item.thumbnail,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    when {
+                        processing -> "Sedang dianalisis…"
+                        failed -> "Gagal dianalisis"
+                        else -> "Menunggu sinyal internet"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (failed && !processing) MaterialTheme.colorScheme.error else LocalContentColor.current,
+                )
+                if (failed && !processing) {
+                    Text(
+                        item.error.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    "Difoto " + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                        .format(Date(item.id)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!processing) {
+                    Row {
+                        if (failed) {
+                            TextButton(onClick = onRetry) { Text("Coba lagi") }
+                        }
+                        TextButton(onClick = onDelete) { Text("Hapus") }
+                    }
+                }
+            }
+            if (processing) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
             }
         }
     }
@@ -248,7 +352,7 @@ private fun SettingsDialog(currentKey: String, onSave: (String) -> Unit, onDismi
 }
 
 @Composable
-fun AnalyzingScreen() {
+fun AnalyzingScreen(onAnalyzeLater: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
@@ -262,5 +366,15 @@ fun AnalyzingScreen() {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(32.dp))
+        Text(
+            "Sinyal lemah? Simpan fotonya ke antrean; analisis berlanjut otomatis.",
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = onAnalyzeLater, modifier = Modifier.padding(top = 8.dp)) {
+            Text("Analisis nanti")
+        }
     }
 }

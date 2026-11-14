@@ -116,6 +116,7 @@ class PlantIdentifierTest {
             invalidKeyIdentifier.identify(byteArrayOf(1))
         }
         assertTrue(keyError.message!!.contains("tidak valid"))
+        assertFalse(keyError.retryable)
 
         val rateLimitedIdentifier = PlantIdentifier(
             apiKey = "key",
@@ -125,6 +126,7 @@ class PlantIdentifierTest {
             rateLimitedIdentifier.identify(byteArrayOf(1))
         }
         assertTrue(rateError.message!!.contains("Terlalu banyak permintaan"))
+        assertTrue(rateError.retryable)
     }
 
     @Test
@@ -175,5 +177,6 @@ class PlantIdentifierTest {
         )
         val error = assertFailsWith<PlantIdentificationException> { alwaysDown.identify(byteArrayOf(1)) }
         assertTrue(error.message!!.contains("SocketException"))
+        assertTrue(error.retryable)
     }
 }

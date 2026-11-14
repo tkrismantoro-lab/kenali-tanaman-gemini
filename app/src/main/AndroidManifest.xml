@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Kabar saat foto di antrean selesai dianalisis (Android 13+ meminta izin). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Kamera dibuka lewat aplikasi kamera bawaan, jadi izin CAMERA tidak diperlukan. -->
     <queries>

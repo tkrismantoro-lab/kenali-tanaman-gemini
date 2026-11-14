@@ -8,8 +8,15 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
-/** Kesalahan identifikasi dengan pesan yang siap ditampilkan ke pengguna. */
-class PlantIdentificationException(message: String, cause: Throwable? = null) : Exception(message, cause)
+/**
+ * Kesalahan identifikasi dengan pesan yang siap ditampilkan ke pengguna.
+ * [retryable] = true bila penyebabnya jaringan/kuota/server sibuk, sehingga layak dicoba lagi nanti.
+ */
+class PlantIdentificationException(
+    message: String,
+    cause: Throwable? = null,
+    val retryable: Boolean = false,
+) : Exception(message, cause)
 
 /** Hasil identifikasi: data terurai plus JSON mentahnya (untuk disimpan ke riwayat). */
 data class IdentificationResult(val info: PlantInfo, val rawJson: String)
@@ -100,6 +107,7 @@ class PlantIdentifier internal constructor(
                 throw PlantIdentificationException(
                     "Layanan AI terlalu lama menjawab. Coba lagi, sebaiknya dengan sinyal internet yang lebih kuat.",
                     e,
+                    retryable = true,
                 )
             } catch (e: IOException) {
                 lastError = e
@@ -110,6 +118,7 @@ class PlantIdentifier internal constructor(
         throw PlantIdentificationException(
             "Tidak dapat terhubung ke layanan AI. Periksa koneksi internet Anda. (${describe(e)})",
             e,
+            retryable = true,
         )
     }
 
@@ -172,7 +181,8 @@ class PlantIdentifier internal constructor(
             statusCode == 503 -> "Layanan AI sedang sibuk. Coba lagi beberapa saat lagi."
             else -> "Layanan AI bermasalah (kode $statusCode). Coba lagi nanti."
         }
-        return PlantIdentificationException(message)
+        val retryable = statusCode == 408 || statusCode == 429 || statusCode >= 500
+        return PlantIdentificationException(message, retryable = retryable)
     }
 
     private fun isApiKeyInvalid(responseBody: String): Boolean {

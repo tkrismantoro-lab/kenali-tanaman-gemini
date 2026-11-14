@@ -16,8 +16,13 @@ data class HistoryEntry(
 class HistoryStore(context: Context) {
     private val root = File(context.filesDir, "history").apply { mkdirs() }
 
-    fun save(photoJpeg: ByteArray, thumbJpeg: ByteArray, rawJson: String, info: PlantInfo): HistoryEntry {
-        val id = System.currentTimeMillis()
+    fun save(
+        photoJpeg: ByteArray,
+        thumbJpeg: ByteArray,
+        rawJson: String,
+        info: PlantInfo,
+        id: Long = System.currentTimeMillis(),
+    ): HistoryEntry {
         val dir = File(root, id.toString()).apply { mkdirs() }
         File(dir, PHOTO).writeBytes(photoJpeg)
         File(dir, THUMB).writeBytes(thumbJpeg)
