@@ -133,7 +133,7 @@ class PlantIdentifier internal constructor(
     }
 
     companion object {
-        const val DEFAULT_MODEL = "gemini-2.5-flash"
+        const val DEFAULT_MODEL = "gemini-3.8-flash"
         private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
         private val mapper = ObjectMapper()
         private val BLOCKED_FINISH_REASONS = setOf(
