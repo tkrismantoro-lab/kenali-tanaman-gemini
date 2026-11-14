@@ -34,38 +34,37 @@ class PlantIdentifier internal constructor(
 
     fun identify(jpegBytes: ByteArray): IdentificationResult {
         val requestJson = buildRequestJson(Base64.getEncoder().encodeToString(jpegBytes))
-        val url = "$BASE_URL/models/$model:generateContent"
+        // Streaming (SSE): data mengalir selama model bekerja, sehingga jaringan seluler tidak
+        // memutus koneksi yang lama "diam".
+        val url = "$BASE_URL/models/$model:streamGenerateContent?alt=sse"
 
-        val result = try {
-            transport.post(url, apiKey, requestJson)
-        } catch (e: SocketTimeoutException) {
-            throw PlantIdentificationException(
-                "Layanan AI terlalu lama menjawab. Coba lagi, sebaiknya dengan sinyal internet yang lebih kuat.",
-                e,
-            )
-        } catch (e: IOException) {
-            throw PlantIdentificationException("Tidak dapat terhubung. Periksa koneksi internet Anda.", e)
-        }
+        val result = postWithRetry(url, requestJson)
 
         if (result.statusCode !in 200..299) {
             throw mapHttpError(result.statusCode, result.body)
         }
 
-        val root = try {
-            mapper.readTree(result.body)
+        val chunks = try {
+            parseChunks(result.body)
         } catch (e: Exception) {
             throw PlantIdentificationException("Jawaban tidak dapat dibaca. Silakan coba lagi.", e)
         }
+        if (chunks.isEmpty()) {
+            throw PlantIdentificationException("Tidak ada jawaban dari layanan AI. Silakan coba lagi.")
+        }
 
-        val blockReason = root.path("promptFeedback").path("blockReason").asText("")
-        if (blockReason.isNotEmpty()) {
+        val blocked = chunks.any { it.path("promptFeedback").path("blockReason").asText("").isNotEmpty() }
+        if (blocked) {
             throw PlantIdentificationException("Foto ini tidak dapat dianalisis. Coba foto lain.")
         }
 
-        val candidate = root.path("candidates").firstOrNull()
-            ?: throw PlantIdentificationException("Tidak ada jawaban dari layanan AI. Silakan coba lagi.")
+        val candidates = chunks.mapNotNull { it.path("candidates").firstOrNull() }
+        if (candidates.isEmpty()) {
+            throw PlantIdentificationException("Tidak ada jawaban dari layanan AI. Silakan coba lagi.")
+        }
 
-        val finishReason = candidate.path("finishReason").asText("")
+        val finishReason = candidates.lastOrNull { it.path("finishReason").asText("").isNotEmpty() }
+            ?.path("finishReason")?.asText("") ?: ""
         if (finishReason in BLOCKED_FINISH_REASONS) {
             throw PlantIdentificationException("Foto ini tidak dapat dianalisis. Coba foto lain.")
         }
@@ -73,10 +72,11 @@ class PlantIdentifier internal constructor(
             throw PlantIdentificationException("Jawaban terpotong. Silakan coba lagi.")
         }
 
-        val json = candidate.path("content").path("parts")
-            .filterNot { it.path("thought").asBoolean(false) }
-            .mapNotNull { it.path("text").takeIf { node -> node.isTextual }?.asText() }
-            .joinToString("")
+        val json = candidates.flatMap { candidate ->
+            candidate.path("content").path("parts")
+                .filterNot { it.path("thought").asBoolean(false) }
+                .mapNotNull { it.path("text").takeIf { node -> node.isTextual }?.asText() }
+        }.joinToString("")
 
         if (json.isBlank()) {
             throw PlantIdentificationException("Tidak ada jawaban dari layanan AI. Silakan coba lagi.")
@@ -88,6 +88,49 @@ class PlantIdentifier internal constructor(
             throw PlantIdentificationException("Jawaban tidak dapat dibaca. Silakan coba lagi.", e)
         }
         return IdentificationResult(info, json)
+    }
+
+    /** Mengirim permintaan; bila koneksi terputus (bukan timeout), dicoba sekali lagi. */
+    private fun postWithRetry(url: String, requestJson: String): HttpResult {
+        var lastError: IOException? = null
+        repeat(MAX_ATTEMPTS) { attempt ->
+            try {
+                return transport.post(url, apiKey, requestJson)
+            } catch (e: SocketTimeoutException) {
+                throw PlantIdentificationException(
+                    "Layanan AI terlalu lama menjawab. Coba lagi, sebaiknya dengan sinyal internet yang lebih kuat.",
+                    e,
+                )
+            } catch (e: IOException) {
+                lastError = e
+                if (attempt < MAX_ATTEMPTS - 1) Thread.sleep(RETRY_DELAY_MS)
+            }
+        }
+        val e = lastError!!
+        throw PlantIdentificationException(
+            "Tidak dapat terhubung ke layanan AI. Periksa koneksi internet Anda. (${describe(e)})",
+            e,
+        )
+    }
+
+    /** Respons streaming berformat SSE ("data: {...}" per baris); respons biasa berupa satu JSON. */
+    internal fun parseChunks(body: String): List<com.fasterxml.jackson.databind.JsonNode> {
+        val trimmed = body.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        if (trimmed.startsWith("[")) return mapper.readTree(trimmed).toList()
+        if (trimmed.startsWith("{")) return listOf(mapper.readTree(trimmed))
+        return trimmed.lineSequence()
+            .map { it.trim() }
+            .filter { it.startsWith("data:") }
+            .map { it.removePrefix("data:").trim() }
+            .filter { it.isNotEmpty() && it != "[DONE]" }
+            .map { mapper.readTree(it) }
+            .toList()
+    }
+
+    private fun describe(e: Throwable): String {
+        val detail = e.message?.take(80)?.takeIf { it.isNotBlank() }
+        return if (detail != null) "${e.javaClass.simpleName}: $detail" else e.javaClass.simpleName
     }
 
     internal fun buildRequestJson(base64Jpeg: String): String {
@@ -126,13 +169,16 @@ class PlantIdentifier internal constructor(
             isInvalidKey -> "API key tidak valid. Periksa kembali di Pengaturan."
             statusCode == 403 -> "API key tidak memiliki izin untuk permintaan ini."
             statusCode == 429 -> "Terlalu banyak permintaan atau kuota habis. Coba lagi sebentar lagi."
+            statusCode == 503 -> "Layanan AI sedang sibuk. Coba lagi beberapa saat lagi."
             else -> "Layanan AI bermasalah (kode $statusCode). Coba lagi nanti."
         }
         return PlantIdentificationException(message)
     }
 
     private fun isApiKeyInvalid(responseBody: String): Boolean {
-        val node = runCatching { mapper.readTree(responseBody) }.getOrNull() ?: return false
+        val parsed = runCatching { mapper.readTree(responseBody) }.getOrNull() ?: return false
+        // Endpoint streaming kadang membungkus error dalam array.
+        val node = if (parsed.isArray) parsed.firstOrNull() ?: return false else parsed
         val message = node.path("error").path("message").asText("")
         if (message.contains("API key not valid", ignoreCase = true)) return true
         return node.path("error").path("details").any { detail ->
@@ -141,8 +187,10 @@ class PlantIdentifier internal constructor(
     }
 
     companion object {
-        const val DEFAULT_MODEL = "gemini-3.8-flash"
+        const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
         private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+        private const val MAX_ATTEMPTS = 2
+        private const val RETRY_DELAY_MS = 2_000L
         private val mapper = ObjectMapper()
         private val BLOCKED_FINISH_REASONS = setOf(
             "SAFETY",

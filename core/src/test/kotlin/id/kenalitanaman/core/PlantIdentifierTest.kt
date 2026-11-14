@@ -90,7 +90,7 @@ class PlantIdentifierTest {
         )
 
         val result = identifier.identify(byteArrayOf(1, 2, 3))
-        assertTrue(capturedUrl.endsWith("/models/${PlantIdentifier.DEFAULT_MODEL}:generateContent"))
+        assertTrue(capturedUrl.endsWith("/models/${PlantIdentifier.DEFAULT_MODEL}:streamGenerateContent?alt=sse"))
         assertEquals("AIza-test-key", capturedKey)
         assertEquals("Lidah Mertua", result.info.commonName)
         assertEquals(sample, result.rawJson)
@@ -125,5 +125,55 @@ class PlantIdentifierTest {
             rateLimitedIdentifier.identify(byteArrayOf(1))
         }
         assertTrue(rateError.message!!.contains("Terlalu banyak permintaan"))
+    }
+
+    @Test
+    fun joinsStreamedSseChunks() {
+        val json = mapper.writeValueAsString(sample)
+        val half = json.length / 2
+        val first = mapper.readValue(json, String::class.java).let { it.substring(0, it.length / 2) }
+        val second = mapper.readValue(json, String::class.java).let { it.substring(it.length / 2) }
+        fun chunk(text: String, finish: String?) = mapper.writeValueAsString(
+            mapOf(
+                "candidates" to listOf(
+                    buildMap<String, Any> {
+                        put("content", mapOf("role" to "model", "parts" to listOf(mapOf("text" to text))))
+                        if (finish != null) put("finishReason", finish)
+                    },
+                ),
+            ),
+        )
+        assertTrue(half > 0)
+        val body = "data: ${chunk(first, null)}\r\n\r\ndata: ${chunk(second, "STOP")}\r\n\r\n"
+
+        val identifier = PlantIdentifier(apiKey = "k", transport = { _, _, _ -> HttpResult(200, body) })
+        val result = identifier.identify(byteArrayOf(1))
+        assertEquals("Lidah Mertua", result.info.commonName)
+        assertEquals(sample, result.rawJson)
+    }
+
+    @Test
+    fun retriesOnceWhenConnectionDrops() {
+        var calls = 0
+        val ok = mapper.writeValueAsString(
+            mapOf("candidates" to listOf(mapOf("content" to mapOf("parts" to listOf(mapOf("text" to sample)))))),
+        )
+        val identifier = PlantIdentifier(
+            apiKey = "k",
+            transport = { _, _, _ ->
+                calls++
+                if (calls == 1) throw java.net.SocketException("Connection reset")
+                HttpResult(200, "data: $ok\n\n")
+            },
+        )
+        assertEquals("Lidah Mertua", identifier.identify(byteArrayOf(1)).info.commonName)
+        assertEquals(2, calls)
+
+        val alwaysDown = PlantIdentifier(
+            apiKey = "k",
+            transport = { _, _, _ -> throw java.net.SocketException("Connection reset") },
+        )
+        val error = assertFailsWith<PlantIdentificationException> { alwaysDown.identify(byteArrayOf(1)) }
+        assertTrue(error.message!!.contains("SocketException"))
     }
 }
