@@ -2,6 +2,7 @@ package id.kenalitanaman.core
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -37,6 +38,11 @@ class PlantIdentifier internal constructor(
 
         val result = try {
             transport.post(url, apiKey, requestJson)
+        } catch (e: SocketTimeoutException) {
+            throw PlantIdentificationException(
+                "Layanan AI terlalu lama menjawab. Coba lagi, sebaiknya dengan sinyal internet yang lebih kuat.",
+                e,
+            )
         } catch (e: IOException) {
             throw PlantIdentificationException("Tidak dapat terhubung. Periksa koneksi internet Anda.", e)
         }
@@ -107,6 +113,8 @@ class PlantIdentifier internal constructor(
                 "responseMimeType" to "application/json",
                 "responseSchema" to PlantSchema.root,
                 "maxOutputTokens" to 16000,
+                // Berpikir "low" cukup untuk identifikasi dan jauh lebih cepat daripada bawaan model.
+                "thinkingConfig" to mapOf("thinkingLevel" to "low"),
             ),
         )
         return mapper.writeValueAsString(body)
@@ -151,7 +159,7 @@ class PlantIdentifier internal constructor(
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 30_000
-                    readTimeout = 90_000
+                    readTimeout = 180_000
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                     setRequestProperty("x-goog-api-key", apiKey)

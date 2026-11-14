@@ -54,6 +54,7 @@ class PlantIdentifierTest {
 
         val config = tree["generationConfig"]
         assertEquals("application/json", config["responseMimeType"].asText())
+        assertEquals("low", config["thinkingConfig"]["thinkingLevel"].asText())
         val schema = config["responseSchema"]
         assertFalse(schema.has("additionalProperties"))
         assertEquals(14, schema["required"].size())

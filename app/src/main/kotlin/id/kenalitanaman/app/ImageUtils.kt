@@ -8,8 +8,8 @@ import java.io.ByteArrayOutputStream
 import kotlin.math.max
 
 object ImageUtils {
-    /** Sisi terpanjang foto yang dikirim ke AI; lebih besar dari ini tidak menambah akurasi. */
-    private const val MAX_UPLOAD_EDGE = 1568
+    /** Sisi terpanjang foto yang dikirim ke AI; cukup tajam untuk identifikasi dan cepat diunggah. */
+    private const val MAX_UPLOAD_EDGE = 1024
     private const val THUMBNAIL_EDGE = 320
 
     /** Memuat foto (orientasi EXIF sudah diterapkan) dan mengecilkannya bila perlu. */
@@ -40,7 +40,7 @@ object ImageUtils {
         )
     }
 
-    fun toJpeg(bitmap: Bitmap, quality: Int = 85): ByteArray =
+    fun toJpeg(bitmap: Bitmap, quality: Int = 80): ByteArray =
         ByteArrayOutputStream().use { out ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
             out.toByteArray()
