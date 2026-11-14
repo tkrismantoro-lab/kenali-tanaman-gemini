@@ -90,10 +90,8 @@ fun HomeScreen(
         ) {
             item {
                 CaptureCard(
-                    hasApiKey = state.apiKey.isNotEmpty(),
                     onTakePhoto = onTakePhoto,
                     onPickPhoto = onPickPhoto,
-                    onOpenSettings = { showSettings = true },
                 )
             }
             if (state.queue.isNotEmpty()) {
@@ -167,10 +165,8 @@ fun HomeScreen(
 
 @Composable
 private fun CaptureCard(
-    hasApiKey: Boolean,
     onTakePhoto: () -> Unit,
     onPickPhoto: () -> Unit,
-    onOpenSettings: () -> Unit,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -195,17 +191,11 @@ private fun CaptureCard(
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
             )
-            if (hasApiKey) {
-                Button(onClick = onTakePhoto, modifier = Modifier.fillMaxWidth()) {
-                    Text("Ambil Foto")
-                }
-                OutlinedButton(onClick = onPickPhoto, modifier = Modifier.fillMaxWidth()) {
-                    Text("Pilih dari Galeri")
-                }
-            } else {
-                Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
-                    Text("Masukkan API Key Gemini")
-                }
+            Button(onClick = onTakePhoto, modifier = Modifier.fillMaxWidth()) {
+                Text("Ambil Foto")
+            }
+            OutlinedButton(onClick = onPickPhoto, modifier = Modifier.fillMaxWidth()) {
+                Text("Pilih dari Galeri")
             }
         }
     }
@@ -329,15 +319,16 @@ private fun SettingsDialog(currentKey: String, onSave: (String) -> Unit, onDismi
         text = {
             Column {
                 Text(
-                    "Aplikasi ini memakai Gemini untuk mengenali tanaman. Buat API key gratis di " +
-                        "aistudio.google.com/apikey lalu tempel di sini. Key hanya disimpan di perangkat ini.",
+                    "Aplikasi sudah bisa langsung dipakai tanpa API key. Opsional: bila ingin memakai " +
+                        "kuota Gemini Anda sendiri, buat API key di " +
+                        "aistudio.google.com/apikey lalu tempel di sini. Kosongkan untuk memakai server bawaan.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = key,
                     onValueChange = { key = it },
-                    label = { Text("API key Gemini") },
+                    label = { Text("API key Gemini (opsional)") },
                     placeholder = { Text("AIza...") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),

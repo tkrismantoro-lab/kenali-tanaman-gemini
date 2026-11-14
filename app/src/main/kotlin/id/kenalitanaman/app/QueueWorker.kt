@@ -10,7 +10,6 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import id.kenalitanaman.core.PlantIdentificationException
-import id.kenalitanaman.core.PlantIdentifier
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -26,17 +25,13 @@ class QueueWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
 
     override suspend fun doWork(): Result {
         val context = applicationContext
-        val apiKey = PlantRepository.apiKey(context)
-        // Tanpa API key tidak ada yang bisa dikerjakan; antrean dijadwalkan lagi saat key disimpan.
-        if (apiKey.isEmpty()) return Result.success()
-
         val queue = PlantRepository.queue(context)
         val history = PlantRepository.history(context)
         val finished = mutableListOf<HistoryEntry>()
 
         return PlantRepository.processingLock.withLock {
             try {
-                processAll(apiKey, queue, history, finished)
+                processAll(queue, history, finished)
             } finally {
                 // Tetap rapikan status walaupun worker dihentikan Android (mis. sinyal hilang).
                 withContext(NonCancellable) {
@@ -49,7 +44,6 @@ class QueueWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
     }
 
     private suspend fun processAll(
-        apiKey: String,
         queue: QueueStore,
         history: HistoryStore,
         finished: MutableList<HistoryEntry>,
@@ -63,7 +57,7 @@ class QueueWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             try {
                 val entry = withContext(Dispatchers.IO) {
                     val jpeg = item.photo.readBytes()
-                    val result = PlantIdentifier(apiKey).identify(jpeg)
+                    val result = PlantRepository.identifier(applicationContext).identify(jpeg)
                     // Id riwayat = waktu foto diambil, sehingga urutan riwayat tetap benar.
                     val saved = history.save(jpeg, item.thumbnail.readBytes(), result.rawJson, result.info, item.id)
                     queue.delete(item.id)

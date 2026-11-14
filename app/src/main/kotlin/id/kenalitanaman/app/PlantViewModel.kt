@@ -8,7 +8,6 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.kenalitanaman.core.PlantIdentificationException
-import id.kenalitanaman.core.PlantIdentifier
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,15 +72,10 @@ class PlantViewModel(app: Application) : AndroidViewModel(app) {
         val trimmed = key.trim()
         prefs.edit().putString(PlantRepository.KEY_API, trimmed).apply()
         _state.update { it.copy(apiKey = trimmed) }
-        if (trimmed.isNotEmpty() && _state.value.queue.isNotEmpty()) QueueWorker.schedule(getApplication())
+        if (_state.value.queue.isNotEmpty()) QueueWorker.schedule(getApplication())
     }
 
     fun identify(photo: Uri) {
-        val apiKey = _state.value.apiKey
-        if (apiKey.isEmpty()) {
-            _state.update { it.copy(error = "Masukkan API key Gemini di Pengaturan terlebih dahulu.") }
-            return
-        }
         if (_state.value.screen == Screen.Analyzing) return
         val app = getApplication<Application>()
 
@@ -113,7 +107,9 @@ class PlantViewModel(app: Application) : AndroidViewModel(app) {
             pending = prepared
             _state.update { it.copy(screen = Screen.Analyzing, error = null) }
             try {
-                val result = withContext(Dispatchers.IO) { PlantIdentifier(apiKey).identify(prepared.jpeg) }
+                val result = withContext(Dispatchers.IO) {
+                    PlantRepository.identifier(app).identify(prepared.jpeg)
+                }
                 val queuedId = prepared.queuedId
                 val entry = withContext(Dispatchers.IO) {
                     val saved = historyStore.save(

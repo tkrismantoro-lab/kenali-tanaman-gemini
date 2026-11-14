@@ -1,6 +1,8 @@
 package id.kenalitanaman.app
 
 import android.content.Context
+import id.kenalitanaman.core.PlantIdentifier
+import id.kenalitanaman.core.ProxyConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +45,19 @@ object PlantRepository {
     fun apiKey(context: Context): String =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_API, "").orEmpty()
+
+    /**
+     * Bila pengguna mengisi API key sendiri di Pengaturan, Gemini dipanggil langsung; bila tidak,
+     * lewat server perantara sehingga aplikasi bisa langsung dipakai tanpa API key.
+     */
+    fun identifier(context: Context): PlantIdentifier {
+        val ownKey = apiKey(context)
+        return if (ownKey.isNotEmpty()) {
+            PlantIdentifier(ownKey)
+        } else {
+            PlantIdentifier(ProxyConfig(BuildConfig.PROXY_URL, BuildConfig.PROXY_APP_TOKEN))
+        }
+    }
 
     fun setProcessing(id: Long?) {
         _processingId.value = id

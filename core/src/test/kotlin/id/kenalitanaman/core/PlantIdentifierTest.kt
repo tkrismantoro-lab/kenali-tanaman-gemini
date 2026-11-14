@@ -82,9 +82,9 @@ class PlantIdentifierTest {
 
         val identifier = PlantIdentifier(
             apiKey = "AIza-test-key",
-            transport = { url, key, _ ->
+            transport = { url, headers, _ ->
                 capturedUrl = url
-                capturedKey = key
+                capturedKey = headers["x-goog-api-key"].orEmpty()
                 HttpResult(200, responseBody)
             },
         )
@@ -178,5 +178,30 @@ class PlantIdentifierTest {
         val error = assertFailsWith<PlantIdentificationException> { alwaysDown.identify(byteArrayOf(1)) }
         assertTrue(error.message!!.contains("SocketException"))
         assertTrue(error.retryable)
+    }
+
+    @Test
+    fun usesProxyWithoutApiKey() {
+        var capturedUrl = ""
+        var capturedHeaders = emptyMap<String, String>()
+        val ok = mapper.writeValueAsString(
+            mapOf("candidates" to listOf(mapOf("content" to mapOf("parts" to listOf(mapOf("text" to sample)))))),
+        )
+        val identifier = PlantIdentifier(
+            apiKey = "",
+            transport = { url, headers, _ ->
+                capturedUrl = url
+                capturedHeaders = headers
+                HttpResult(200, "data: $ok\n\n")
+            },
+            proxy = ProxyConfig("https://contoh.workers.dev/", "token-aplikasi"),
+        )
+        assertEquals("Lidah Mertua", identifier.identify(byteArrayOf(1)).info.commonName)
+        assertEquals(
+            "https://contoh.workers.dev/v1beta/models/${PlantIdentifier.DEFAULT_MODEL}:streamGenerateContent?alt=sse",
+            capturedUrl,
+        )
+        assertEquals("token-aplikasi", capturedHeaders["x-app-token"])
+        assertFalse(capturedHeaders.containsKey("x-goog-api-key"))
     }
 }

@@ -28,7 +28,13 @@ jobs:
           fi
 
       - name: Build APK
+        env:
+          PROXY_APP_TOKEN: ${{ secrets.PROXY_APP_TOKEN }}
         run: |
+          if [ -z "$PROXY_APP_TOKEN" ]; then
+            echo "::error::GitHub secret PROXY_APP_TOKEN belum diisi"
+            exit 1
+          fi
           chmod +x gradlew
           ./gradlew :core:test :app:assembleDebug --stacktrace
 

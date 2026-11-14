@@ -14,6 +14,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
+        // Server perantara (Cloudflare Worker, kode di server/worker.js). Tokennya tidak disimpan
+        // di repo: diambil dari variabel lingkungan PROXY_APP_TOKEN (GitHub secret saat build) dan
+        // harus sama dengan secret APP_TOKEN di Cloudflare.
+        val proxyAppToken = System.getenv("PROXY_APP_TOKEN").orEmpty()
+        buildConfigField("String", "PROXY_URL", "\"https://kenali-tanaman.tkrismantoro.workers.dev\"")
+        buildConfigField("String", "PROXY_APP_TOKEN", "\"$proxyAppToken\"")
     }
 
     signingConfigs {
@@ -43,6 +50,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {

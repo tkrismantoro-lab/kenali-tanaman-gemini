@@ -24,8 +24,14 @@ data class IdentificationResult(val info: PlantInfo, val rawJson: String)
 internal data class HttpResult(val statusCode: Int, val body: String)
 
 internal fun interface GeminiTransport {
-    fun post(url: String, apiKey: String, requestBodyJson: String): HttpResult
+    fun post(url: String, headers: Map<String, String>, requestBodyJson: String): HttpResult
 }
+
+/**
+ * Server perantara milik pengelola aplikasi: meneruskan permintaan ke Gemini dengan API key yang
+ * disimpan di server, sehingga pengguna tidak perlu API key sendiri.
+ */
+data class ProxyConfig(val baseUrl: String, val appToken: String)
 
 /**
  * Mengirim foto tanaman ke Gemini API dan mengembalikan identifikasi beserta panduan perawatan.
@@ -35,15 +41,27 @@ class PlantIdentifier internal constructor(
     private val apiKey: String,
     private val model: String = DEFAULT_MODEL,
     private val transport: GeminiTransport = DefaultTransport,
+    private val proxy: ProxyConfig? = null,
 ) {
+    /** Langsung ke Gemini dengan API key milik pengguna. */
     constructor(apiKey: String, model: String = DEFAULT_MODEL) :
-        this(apiKey, model, DefaultTransport)
+        this(apiKey, model, DefaultTransport, null)
+
+    /** Lewat server perantara; tidak butuh API key di perangkat. */
+    constructor(proxy: ProxyConfig, model: String = DEFAULT_MODEL) :
+        this("", model, DefaultTransport, proxy)
+
+    private val baseUrl: String =
+        proxy?.let { it.baseUrl.trimEnd('/') + "/v1beta" } ?: BASE_URL
+
+    private val headers: Map<String, String> =
+        if (proxy != null) mapOf("x-app-token" to proxy.appToken) else mapOf("x-goog-api-key" to apiKey)
 
     fun identify(jpegBytes: ByteArray): IdentificationResult {
         val requestJson = buildRequestJson(Base64.getEncoder().encodeToString(jpegBytes))
         // Streaming (SSE): data mengalir selama model bekerja, sehingga jaringan seluler tidak
         // memutus koneksi yang lama "diam".
-        val url = "$BASE_URL/models/$model:streamGenerateContent?alt=sse"
+        val url = "$baseUrl/models/$model:streamGenerateContent?alt=sse"
 
         val result = postWithRetry(url, requestJson)
 
@@ -102,7 +120,7 @@ class PlantIdentifier internal constructor(
         var lastError: IOException? = null
         repeat(MAX_ATTEMPTS) { attempt ->
             try {
-                return transport.post(url, apiKey, requestJson)
+                return transport.post(url, headers, requestJson)
             } catch (e: SocketTimeoutException) {
                 throw PlantIdentificationException(
                     "Layanan AI terlalu lama menjawab. Coba lagi, sebaiknya dengan sinyal internet yang lebih kuat.",
@@ -175,7 +193,11 @@ class PlantIdentifier internal constructor(
     private fun mapHttpError(statusCode: Int, responseBody: String): PlantIdentificationException {
         val isInvalidKey = statusCode == 401 || (statusCode == 400 && isApiKeyInvalid(responseBody))
         val message = when {
+            isInvalidKey && proxy != null ->
+                "Kunci AI di server tidak valid. Hubungi pengelola aplikasi."
             isInvalidKey -> "API key tidak valid. Periksa kembali di Pengaturan."
+            statusCode == 403 && proxy != null ->
+                "Server AI menolak akses. Perbarui aplikasi ke versi terbaru."
             statusCode == 403 -> "API key tidak memiliki izin untuk permintaan ini."
             statusCode == 429 -> "Terlalu banyak permintaan atau kuota habis. Coba lagi sebentar lagi."
             statusCode == 503 -> "Layanan AI sedang sibuk. Coba lagi beberapa saat lagi."
@@ -213,14 +235,14 @@ class PlantIdentifier internal constructor(
         )
 
         private object DefaultTransport : GeminiTransport {
-            override fun post(url: String, apiKey: String, requestBodyJson: String): HttpResult {
+            override fun post(url: String, headers: Map<String, String>, requestBodyJson: String): HttpResult {
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 30_000
                     readTimeout = 180_000
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                    setRequestProperty("x-goog-api-key", apiKey)
+                    headers.forEach { (name, value) -> setRequestProperty(name, value) }
                 }
                 return try {
                     conn.outputStream.use { out ->
